@@ -1079,7 +1079,11 @@ func (api *RelayAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http
 }
 
 func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Request) {
+	var pf common.Profile
+	var prevTime, nextTime time.Time
+
 	receivedAt := time.Now().UTC()
+	prevTime = receivedAt
 	log := api.log.WithFields(logrus.Fields{
 		"method":        "submitNewBlock",
 		"contentLength": req.ContentLength,
@@ -1108,6 +1112,10 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 		api.RespondError(w, http.StatusBadRequest, "missing parts of the payload")
 		return
 	}
+
+	nextTime = time.Now().UTC()
+	pf.Decode = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
 
 	log = log.WithFields(logrus.Fields{
 		"slot":          payload.Message.Slot,
@@ -1153,6 +1161,10 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	nextTime = time.Now().UTC()
+	pf.CacheRead = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
+
 	// randao check 1:
 	// - querying the randao from the BN if payload has a newer slot (might be faster than headSlot event)
 	// - check for validity happens later, again after validation (to use some time for BN request to finish...)
@@ -1161,6 +1173,10 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 		go api.updatedExpectedRandao(payload.Message.Slot - 1)
 	}
 	api.expectedPrevRandaoLock.RUnlock()
+
+	nextTime = time.Now().UTC()
+	pf.RandaoLock1 = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
 
 	// ensure correct feeRecipient is used
 	api.proposerDutiesLock.RLock()
@@ -1175,6 +1191,10 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 		api.RespondError(w, http.StatusBadRequest, "fee recipient does not match")
 		return
 	}
+
+	nextTime = time.Now().UTC()
+	pf.DutiesLock = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
 
 	if builderEntry.status.IsBlacklisted {
 		log.Info("builder is blacklisted")
@@ -1219,6 +1239,10 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	nextTime = time.Now().UTC()
+	pf.Checks = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
+
 	// get the latest randao and check again, it might have updated in the meantime)
 	api.expectedPrevRandaoLock.RLock()
 	expectedRandao := api.expectedPrevRandao
@@ -1243,15 +1267,15 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 	}
 
 	var simErr error
-	var precheckDuration, simulationDuration, redisUpdateDuration, submissionDuration uint64
 	var optimisticSubmission bool
 
-	precheckComplete := time.Now().UTC()
-	precheckDuration = uint64(precheckComplete.Sub(receivedAt).Microseconds())
+	nextTime = time.Now().UTC()
+	pf.RandaoLock2 = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
 
 	// At end of this function, save builder submission to database (in the background)
 	defer func() {
-		submissionEntry, err := api.db.SaveBuilderBlockSubmission(payload, simErr, receivedAt, precheckDuration, simulationDuration, redisUpdateDuration, submissionDuration, optimisticSubmission)
+		submissionEntry, err := api.db.SaveBuilderBlockSubmission(payload, simErr, receivedAt, pf, optimisticSubmission)
 		if err != nil {
 			log.WithError(err).WithField("payload", payload).Error("saving builder block submission to database failed")
 			return
@@ -1289,8 +1313,9 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 		}
 	}
 
-	simulationComplete := time.Now().UTC()
-	simulationDuration = uint64(simulationComplete.Sub(precheckComplete).Microseconds())
+	nextTime = time.Now().UTC()
+	pf.Simulation = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
 
 	// Ensure this request is still the latest one
 	latestPayloadReceivedAt, err := api.redis.GetBuilderLatestPayloadReceivedAt(payload.Message.Slot, builderPubkey, payload.Message.ParentHash.String(), payload.Message.ProposerPubkey.String())
@@ -1362,22 +1387,18 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 	}
 
 	// this bid is now elligible to win the auction
-	redisUpdateComplete := time.Now().UTC()
-	redisUpdateDuration = uint64(redisUpdateComplete.Sub(simulationComplete).Microseconds())
-	submissionDuration = uint64(time.Now().UTC().Sub(receivedAt).Microseconds())
+	nextTime = time.Now().UTC()
+	pf.RedisUpdate = uint64(nextTime.Sub(prevTime).Microseconds())
+	pf.Submission = uint64(nextTime.Sub(receivedAt).Microseconds())
 
 	//
 	// all done
 	//
 	log.WithFields(logrus.Fields{
-		"proposerPubkey":       payload.Message.ProposerPubkey.String(),
-		"value":                payload.Message.Value.String(),
-		"tx":                   len(payload.ExecutionPayload.Transactions),
-		"precheckDuration":     precheckDuration,
-		"simulationDuration":   simulationDuration,
-		"redisUpdateDuration":  redisUpdateDuration,
-		"submissionDuration":   submissionDuration,
-		"optimisticSubmission": optimisticSubmission,
+		"proposerPubkey": payload.Message.ProposerPubkey.String(),
+		"value":          payload.Message.Value.String(),
+		"tx":             len(payload.ExecutionPayload.Transactions),
+		"profile":        pf.String(),
 	}).Info("received block from builder")
 
 	// Respond with OK (TODO: proper response response data type https://flashbots.notion.site/Relay-API-Spec-5fb0819366954962bc02e81cb33840f5#fa719683d4ae4a57bc3bf60e138b0dc6)

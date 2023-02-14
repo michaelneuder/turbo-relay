@@ -156,7 +156,14 @@ type BuilderBlockSubmissionEntry struct {
 	Epoch       uint64 `db:"epoch"`
 	BlockNumber uint64 `db:"block_number"`
 
-	// Optimistic data
+	// Profile data.
+	DecodeDuration      uint64 `db:"decode_duration"`
+	CacheReadDuration   uint64 `db:"cache_read_duration"`
+	RandaoLock1Duration uint64 `db:"randao_lock_1_duration"`
+	DutiesLockDuration  uint64 `db:"duties_lock_duration"`
+	ChecksDuration      uint64 `db:"checks_duration"`
+	RandaoLock2Duration uint64 `db:"randao_lock_2_duration"`
+
 	PrecheckDuration     uint64 `db:"precheck_duration"`
 	SimulationDuration   uint64 `db:"simulation_duration"`
 	RedisUpdateDuration  uint64 `db:"redis_update_duration"`

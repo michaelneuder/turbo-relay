@@ -2,7 +2,6 @@ package database
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -22,19 +21,26 @@ const (
 	collateralStr        = "1000"
 	collateralID         = "builder0x69"
 	randao               = "01234567890123456789012345678901"
-	precheckDuration     = 101
-	simulationDuration   = 142
-	redisUpdateDuration  = 9402
-	submissionDuration   = 9998
 	optimisticSubmission = true
 )
 
 var (
-	runDBTests = os.Getenv("RUN_DB_TESTS") == "1" //|| true
-	// runDBTests   = true
+	// runDBTests = os.Getenv("RUN_DB_TESTS") == "1" //|| true
+	runDBTests   = true
 	feeRecipient = types.Address{0x02}
 	blockHashStr = "0xa645370cc112c2e8e3cce121416c7dc849e773506d4b6fb9b752ada711355369"
 	testDBDSN    = common.GetEnv("TEST_DB_DSN", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
+	profile      = common.Profile{
+		Decode:      42,
+		CacheRead:   43,
+		RandaoLock1: 44,
+		DutiesLock:  45,
+		Checks:      46,
+		RandaoLock2: 47,
+		Simulation:  48,
+		RedisUpdate: 49,
+		Submission:  50,
+	}
 )
 
 func createValidatorRegistration(pubKey string) ValidatorRegistrationEntry {
@@ -70,7 +76,7 @@ func insertTestBuilder(t *testing.T, db IDatabaseService) string {
 		ProposerFeeRecipient: feeRecipient,
 		Value:                types.IntToU256(uint64(collateral)),
 	})
-	entry, err := db.SaveBuilderBlockSubmission(&req, nil, time.Now(), precheckDuration, simulationDuration, redisUpdateDuration, submissionDuration, optimisticSubmission)
+	entry, err := db.SaveBuilderBlockSubmission(&req, nil, time.Now(), profile, optimisticSubmission)
 	require.NoError(t, err)
 	err = db.UpsertBlockBuilderEntryAfterSubmission(entry, false)
 	require.NoError(t, err)
@@ -287,9 +293,15 @@ func TestGetBlockSubmissionEntry(t *testing.T) {
 	entry, err := db.GetBlockSubmissionEntry(slot, pubkey, blockHashStr)
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(precheckDuration), entry.PrecheckDuration)
-	require.Equal(t, uint64(simulationDuration), entry.SimulationDuration)
-	require.Equal(t, uint64(redisUpdateDuration), entry.RedisUpdateDuration)
-	require.Equal(t, uint64(submissionDuration), entry.SubmissionDuration)
+	require.Equal(t, profile.Decode, entry.DecodeDuration)
+	require.Equal(t, profile.CacheRead, entry.CacheReadDuration)
+	require.Equal(t, profile.RandaoLock1, entry.RandaoLock1Duration)
+	require.Equal(t, profile.DutiesLock, entry.DutiesLockDuration)
+	require.Equal(t, profile.Checks, entry.ChecksDuration)
+	require.Equal(t, profile.RandaoLock2, entry.RandaoLock2Duration)
+	require.Equal(t, profile.Simulation, entry.SimulationDuration)
+	require.Equal(t, profile.RedisUpdate, entry.RedisUpdateDuration)
+	require.Equal(t, profile.Submission, entry.SubmissionDuration)
+
 	require.True(t, entry.OptimisticSubmission)
 }

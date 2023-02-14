@@ -3,6 +3,7 @@ package common
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -27,4 +28,20 @@ type BuilderStatus struct {
 	IsHighPrio    bool
 	IsBlacklisted bool
 	IsDemoted     bool
+}
+
+type Profile struct {
+	Decode      uint64
+	CacheRead   uint64
+	RandaoLock1 uint64
+	DutiesLock  uint64
+	Checks      uint64
+	RandaoLock2 uint64
+	Simulation  uint64
+	RedisUpdate uint64
+	Submission  uint64
+}
+
+func (p *Profile) String() string {
+	return fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v", p.Decode, p.CacheRead, p.RandaoLock1, p.DutiesLock, p.Checks, p.RandaoLock2, p.Simulation, p.RedisUpdate, p.Submission)
 }

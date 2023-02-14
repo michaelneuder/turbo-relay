@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -108,7 +108,7 @@ func SendJSONRPCRequest(client *http.Client, req jsonrpc.JSONRPCRequest, url str
 	defer resp.Body.Close()
 
 	// read all resp bytes
-	rawResp, err := ioutil.ReadAll(resp.Body)
+	rawResp, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read response bytes: %v", err)
 	}
