@@ -31,6 +31,7 @@ var (
 	blockHashStr = "0xa645370cc112c2e8e3cce121416c7dc849e773506d4b6fb9b752ada711355369"
 	testDBDSN    = common.GetEnv("TEST_DB_DSN", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
 	profile      = common.Profile{
+		Unzip:       41,
 		Decode:      42,
 		CacheRead:   43,
 		RandaoLock1: 44,
@@ -293,6 +294,7 @@ func TestGetBlockSubmissionEntry(t *testing.T) {
 	entry, err := db.GetBlockSubmissionEntry(slot, pubkey, blockHashStr)
 	require.NoError(t, err)
 
+	require.Equal(t, profile.Unzip, entry.UnzipDuration)
 	require.Equal(t, profile.Decode, entry.DecodeDuration)
 	require.Equal(t, profile.CacheRead, entry.CacheReadDuration)
 	require.Equal(t, profile.RandaoLock1, entry.RandaoLock1Duration)

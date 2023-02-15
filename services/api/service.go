@@ -1101,6 +1101,10 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 		log = log.WithField("gzip-req", true)
 	}
 
+	nextTime = time.Now().UTC()
+	pf.Unzip = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
+
 	payload := new(types.BuilderSubmitBlockRequest)
 	if err := json.NewDecoder(r).Decode(payload); err != nil {
 		log.WithError(err).Warn("could not decode payload")

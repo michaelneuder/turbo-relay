@@ -31,6 +31,7 @@ type BuilderStatus struct {
 }
 
 type Profile struct {
+	Unzip       uint64
 	Decode      uint64
 	CacheRead   uint64
 	RandaoLock1 uint64
@@ -43,5 +44,5 @@ type Profile struct {
 }
 
 func (p *Profile) String() string {
-	return fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v", p.Decode, p.CacheRead, p.RandaoLock1, p.DutiesLock, p.Checks, p.RandaoLock2, p.Simulation, p.RedisUpdate, p.Submission)
+	return fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%v", p.Unzip, p.Decode, p.CacheRead, p.RandaoLock1, p.DutiesLock, p.Checks, p.RandaoLock2, p.Simulation, p.RedisUpdate, p.Submission)
 }

@@ -13,5 +13,6 @@ var Migrations = migrate.MemoryMigrationSource{
 		Migration004Temp,
 		Migration005Profiling,
 		Migration006ProfilingExt,
+		Migration007Unzip,
 	},
 }

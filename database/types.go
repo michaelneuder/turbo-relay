@@ -157,6 +157,7 @@ type BuilderBlockSubmissionEntry struct {
 	BlockNumber uint64 `db:"block_number"`
 
 	// Profile data.
+	UnzipDuration       uint64 `db:"unzip_duration"`
 	DecodeDuration      uint64 `db:"decode_duration"`
 	CacheReadDuration   uint64 `db:"cache_read_duration"`
 	RandaoLock1Duration uint64 `db:"randao_lock_1_duration"`
