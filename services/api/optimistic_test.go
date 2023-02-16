@@ -211,6 +211,7 @@ func TestSimulateBlock(t *testing.T) {
 	cases := []struct {
 		description     string
 		simulationError error
+		expectError     bool
 	}{
 		{
 			description: "success",
@@ -218,6 +219,11 @@ func TestSimulateBlock(t *testing.T) {
 		{
 			description:     "simulation_error",
 			simulationError: errFake,
+			expectError:     true,
+		},
+		{
+			description:     "block_already_known",
+			simulationError: fmt.Errorf(ErrBlockAlreadyKnown),
 		},
 	}
 	for _, tc := range cases {
@@ -235,7 +241,9 @@ func TestSimulateBlock(t *testing.T) {
 						pubkey, secretkey, getTestBidTrace(*pubkey, collateral)),
 				},
 			})
-			require.Equal(t, tc.simulationError, err)
+			if tc.expectError {
+				require.Equal(t, tc.simulationError, err)
+			}
 		})
 	}
 }
