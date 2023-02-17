@@ -431,7 +431,7 @@ func (api *RelayAPI) simulateBlock(opts blockSimOptions) error {
 	return nil
 }
 
-func (api *RelayAPI) demoteBuilder(pubkey string, req *types.BuilderSubmitBlockRequest, block *types.SignedBeaconBlock, reg *types.SignedValidatorRegistration, simError error) {
+func (api *RelayAPI) demoteBuilder(pubkey string, req *types.BuilderSubmitBlockRequest, simError error) {
 	builderEntry, ok := api.blockBuildersCache[pubkey]
 	if !ok {
 		api.log.Warnf("builder %v not in the builder cache", pubkey)
@@ -448,12 +448,11 @@ func (api *RelayAPI) demoteBuilder(pubkey string, req *types.BuilderSubmitBlockR
 	}
 	// Write to demotions table.
 	api.log.WithFields(logrus.Fields{"builder_pubkey": pubkey}).Info("demoting builder")
-	if err := api.db.UpsertBuilderDemotion(req, block, reg, simError); err != nil {
+	if err := api.db.InsertBuilderDemotion(req, simError); err != nil {
 		api.log.WithError(err).WithFields(logrus.Fields{
-			"signedBeaconBlock":           block,
-			"signedValidatorRegistration": reg,
-			"errorWritingRefundToDB":      true,
-			"simError":                    simError,
+			"errorWritingDemotionToDB": true,
+			"bidTrace":                 req.Message,
+			"simError":                 simError,
 		}).Error("failed to save validator refund to database")
 	}
 }
@@ -478,9 +477,8 @@ func (api *RelayAPI) processOptimisticBlock(opts blockSimOptions) {
 	if simErr := api.simulateBlock(opts); simErr != nil {
 		api.log.WithError(simErr).Error("block simulation failed in processOptimisticBlock, demoting builder")
 
-		// Demote the builder but without the beacon block or the signed
-		// registration, because we don't know if this bid will be accepted.
-		api.demoteBuilder(builderPubkey, &opts.req.BuilderSubmitBlockRequest, nil, nil, simErr)
+		// Demote the builder.
+		api.demoteBuilder(builderPubkey, &opts.req.BuilderSubmitBlockRequest, simErr)
 	}
 }
 
@@ -971,32 +969,25 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			log.WithError(err).Error("failed to increment builder-stats after getPayload")
 		}
 
-		// Check if the block was valid.
-		submitBlockReq := types.BuilderSubmitBlockRequest{
-			Signature:        payload.Signature,
-			Message:          &bidTrace.BidTrace,
-			ExecutionPayload: getPayloadResp.Data,
+		// Wait until optimistic blocks for that slot are complete.
+		api.optimisticBlocks.Wait()
+
+		// Check if there is a demotion for the winning block.
+		demoted, err := api.db.DemotionForTrace(&bidTrace.BidTrace)
+		if err != nil {
+			log.WithError(err).Error("failed to check for demotion")
 		}
 
-		simErr := api.simulateBlock(blockSimOptions{
-			ctx:        context.Background(),
-			log:        log,
-			isHighPrio: false,
-			req: &BuilderBlockValidationRequest{
-				BuilderSubmitBlockRequest: submitBlockReq,
-				RegisteredGasLimit:        getPayloadResp.Data.GasLimit,
-			},
-		})
-		// Block validation failed, perform a demotion.
-		if simErr != nil {
+		// If demoted, insert remaining data for the refund.
+		if demoted {
 			builderPubkey := bidTrace.BuilderPubkey.String()
 			log = log.WithFields(logrus.Fields{
 				"builderPubkey": builderPubkey,
 				"bidTrace":      bidTrace,
 			})
-			log.WithError(simErr).Error("simulation error in getPayload, demoting builder")
+			log.Error("invalid block in getPayload, inserting refund justification")
 
-			// Prepare demotion data.
+			// Prepare refund data.
 			signedBeaconBlock := SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp.Data)
 
 			// Get registration entry from the DB.
@@ -1016,7 +1007,15 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 				}
 			}
 
-			api.demoteBuilder(builderPubkey, &submitBlockReq, signedBeaconBlock, signedRegistration, simErr)
+			err = api.db.UpdateBuilderDemotion(&bidTrace.BidTrace, signedBeaconBlock, signedRegistration)
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"errorWritingRefundToDB": true,
+					"bidTrace":               bidTrace,
+					"signedBeaconBlock":      signedBeaconBlock,
+					"signedRegistration":     signedRegistration,
+				}).WithError(err).Error("unable to update builder demotion with refund justification")
+			}
 			return
 		}
 	}()

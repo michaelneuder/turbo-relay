@@ -159,14 +159,10 @@ func startTestBackend(t *testing.T) (*types.PublicKey, *blst.SecretKey, *testBac
 	return &pubkey, sk, backend
 }
 
-func runOptimisticGetPayload(t *testing.T, opts blockRequestOpts, simErr error, backend *testBackend) {
+func runOptimisticGetPayload(t *testing.T, opts blockRequestOpts, backend *testBackend) {
 	var txn hexutil.Bytes
 	err := txn.UnmarshalText([]byte("0x03"))
 	require.NoError(t, err)
-
-	backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
-		simulationError: simErr,
-	}
 
 	block := &types.BlindedBeaconBlock{
 		Slot:          slot,
@@ -304,51 +300,25 @@ func TestProcessOptimisticBlock(t *testing.T) {
 }
 
 func TestDemoteBuilder(t *testing.T) {
-	cases := []struct {
-		description string
-		wantStatus  common.BuilderStatus
-		wantRefund  bool
-		block       *types.SignedBeaconBlock
-		reg         *types.SignedValidatorRegistration
-	}{
-		{
-			description: "no_refund",
-			wantStatus: common.BuilderStatus{
-				IsDemoted:  true,
-				IsHighPrio: true,
-			},
-			wantRefund: false,
-		},
-		{
-			description: "refund",
-			wantStatus: common.BuilderStatus{
-				IsDemoted:  true,
-				IsHighPrio: true,
-			},
-			wantRefund: true,
-			block:      &types.SignedBeaconBlock{},
-			reg:        &types.SignedValidatorRegistration{},
-		},
+	wantStatus := common.BuilderStatus{
+		IsDemoted:  true,
+		IsHighPrio: true,
 	}
-	for _, tc := range cases {
-		t.Run(tc.description, func(t *testing.T) {
-			pubkey, secretkey, backend := startTestBackend(t)
-			pkStr := pubkey.String()
-			req := common.TestBuilderSubmitBlockRequest(pubkey, secretkey, getTestBidTrace(*pubkey, collateral))
-			backend.relay.demoteBuilder(pkStr, &req, tc.block, tc.reg, errFake)
+	pubkey, secretkey, backend := startTestBackend(t)
+	pkStr := pubkey.String()
+	req := common.TestBuilderSubmitBlockRequest(pubkey, secretkey, getTestBidTrace(*pubkey, collateral))
+	backend.relay.demoteBuilder(pkStr, &req, errFake)
 
-			// Check status in db.
-			builder, err := backend.relay.db.GetBlockBuilderByPubkey(pkStr)
-			require.NoError(t, err)
-			require.Equal(t, tc.wantStatus.IsDemoted, builder.IsDemoted)
-			require.Equal(t, tc.wantStatus.IsHighPrio, builder.IsHighPrio)
+	// Check status in db.
+	builder, err := backend.relay.db.GetBlockBuilderByPubkey(pkStr)
+	require.NoError(t, err)
+	require.Equal(t, wantStatus.IsDemoted, builder.IsDemoted)
+	require.Equal(t, wantStatus.IsHighPrio, builder.IsHighPrio)
 
-			// Check demotion and refund statuses.
-			mockDB := backend.relay.db.(*database.MockDB)
-			require.True(t, mockDB.Demotions[pkStr])
-			require.Equal(t, tc.wantRefund, mockDB.Refunds[pkStr])
-		})
-	}
+	// Check demotion and refund statuses.
+	mockDB := backend.relay.db.(*database.MockDB)
+	require.True(t, mockDB.Demotions[pkStr])
+
 }
 
 func TestUpdateOptimisticSlot(t *testing.T) {
@@ -367,9 +337,9 @@ func TestUpdateOptimisticSlot(t *testing.T) {
 
 func TestProposerApiGetPayloadOptimistic(t *testing.T) {
 	testCases := []struct {
-		description     string
-		wantStatus      common.BuilderStatus
-		simulationError error
+		description string
+		wantStatus  common.BuilderStatus
+		demoted     bool
 	}{
 		{
 			description: "success",
@@ -377,7 +347,7 @@ func TestProposerApiGetPayloadOptimistic(t *testing.T) {
 				IsDemoted:  false,
 				IsHighPrio: true,
 			},
-			simulationError: nil,
+			demoted: false,
 		},
 		{
 			description: "sim_error_refund",
@@ -385,7 +355,7 @@ func TestProposerApiGetPayloadOptimistic(t *testing.T) {
 				IsDemoted:  true,
 				IsHighPrio: true,
 			},
-			simulationError: errFake,
+			demoted: true,
 		},
 	}
 
@@ -393,24 +363,26 @@ func TestProposerApiGetPayloadOptimistic(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			pubkey, secretkey, backend := startTestBackend(t)
 			pkStr := pubkey.String()
+			// First insert a demotion.
+			if tc.demoted {
+				backend.relay.db.InsertBuilderDemotion(&types.BuilderSubmitBlockRequest{
+					Message: &types.BidTrace{
+						BuilderPubkey: *pubkey,
+					},
+				}, errFake)
+			}
+
 			runOptimisticGetPayload(t, blockRequestOpts{
 				secretkey: secretkey,
 				pubkey:    *pubkey,
 				domain:    backend.relay.opts.EthNetDetails.DomainBeaconProposer,
-			}, tc.simulationError, backend)
+			}, backend)
 
-			// Check status in db.
-			builder, err := backend.relay.db.GetBlockBuilderByPubkey(pkStr)
-			require.NoError(t, err)
-			require.Equal(t, tc.wantStatus.IsDemoted, builder.IsDemoted)
-			require.Equal(t, tc.wantStatus.IsHighPrio, builder.IsHighPrio)
+			// Check demotion and refund status'.
+			mockDB := backend.relay.db.(*database.MockDB)
+			require.Equal(t, tc.demoted, mockDB.Demotions[pkStr])
+			require.Equal(t, tc.demoted, mockDB.Refunds[pkStr])
 
-			// Check demotion and refund.
-			if tc.simulationError != nil {
-				mockDB := backend.relay.db.(*database.MockDB)
-				require.True(t, mockDB.Demotions[pkStr])
-				require.True(t, mockDB.Refunds[pkStr])
-			}
 		})
 	}
 }

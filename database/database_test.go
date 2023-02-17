@@ -267,7 +267,7 @@ func TestSetBlockBuilderCollateral(t *testing.T) {
 	require.Equal(t, collateralStr, builder.CollateralValue)
 }
 
-func TestUpsertBuilderDemotion(t *testing.T) {
+func TestInsertBuilderDemotion(t *testing.T) {
 	db := resetDatabase(t)
 	pk, sk := getTestKeyPair(t)
 	req := common.TestBuilderSubmitBlockRequest(pk, sk, &types.BidTrace{
@@ -278,12 +278,37 @@ func TestUpsertBuilderDemotion(t *testing.T) {
 	})
 
 	simErr := fmt.Errorf("fake simulation error")
-	// Non-refundable demotion (just the block request).
-	err := db.UpsertBuilderDemotion(&req, nil, nil, simErr)
+	err := db.InsertBuilderDemotion(&req, simErr)
+	require.NoError(t, err)
+}
+
+func TestUpdateBuilderDemotion(t *testing.T) {
+	db := resetDatabase(t)
+	pk, sk := getTestKeyPair(t)
+	req := common.TestBuilderSubmitBlockRequest(pk, sk, &types.BidTrace{
+		Slot:                 slot,
+		BuilderPubkey:        *pk,
+		ProposerFeeRecipient: feeRecipient,
+		Value:                types.IntToU256(uint64(collateral)),
+	})
+
+	// Should not be demoted yet.
+	demoted, err := db.DemotionForTrace(req.Message)
+	require.NoError(t, err)
+	require.False(t, demoted)
+
+	// Insert demotion
+	simErr := fmt.Errorf("fake simulation error")
+	err = db.InsertBuilderDemotion(&req, simErr)
 	require.NoError(t, err)
 
-	// Refundable demotion.
-	err = db.UpsertBuilderDemotion(&req, &types.SignedBeaconBlock{}, &types.SignedValidatorRegistration{}, simErr)
+	// Now demoted should be true.
+	demoted, err = db.DemotionForTrace(req.Message)
+	require.NoError(t, err)
+	require.True(t, demoted)
+
+	// Update demotion with the signedBlock and signedRegistration.
+	err = db.UpdateBuilderDemotion(req.Message, &types.SignedBeaconBlock{}, &types.SignedValidatorRegistration{})
 	require.NoError(t, err)
 }
 

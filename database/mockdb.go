@@ -143,13 +143,30 @@ func (db MockDB) IncBlockBuilderStatsAfterGetPayload(builderPubkey string) error
 	return nil
 }
 
-func (db MockDB) UpsertBuilderDemotion(submitBlockRequest *types.BuilderSubmitBlockRequest, signedBeaconBlock *types.SignedBeaconBlock, signedValidatorRegistration *types.SignedValidatorRegistration, simError error) error {
+func (db MockDB) InsertBuilderDemotion(submitBlockRequest *types.BuilderSubmitBlockRequest, simError error) error {
 	pubkey := submitBlockRequest.Message.BuilderPubkey.String()
 	db.Demotions[pubkey] = true
-
-	// Refundable case.
-	if signedBeaconBlock != nil {
-		db.Refunds[pubkey] = true
-	}
 	return nil
+}
+
+func (db MockDB) UpdateBuilderDemotion(trace *types.BidTrace, signedBlock *types.SignedBeaconBlock, signedRegistration *types.SignedValidatorRegistration) error {
+	pubkey := trace.BuilderPubkey.String()
+	_, ok := db.Builders[pubkey]
+	if !ok {
+		return fmt.Errorf("builder with pubkey %v not in Builders map", pubkey)
+	}
+	if !db.Demotions[pubkey] {
+		return fmt.Errorf("builder with pubkey %v is not demoted", pubkey)
+	}
+	db.Refunds[pubkey] = true
+	return nil
+}
+
+func (db MockDB) DemotionForTrace(trace *types.BidTrace) (bool, error) {
+	pubkey := trace.BuilderPubkey.String()
+	_, ok := db.Builders[pubkey]
+	if !ok {
+		return false, fmt.Errorf("builder with pubkey %v not in Builders map", pubkey)
+	}
+	return db.Demotions[pubkey], nil
 }

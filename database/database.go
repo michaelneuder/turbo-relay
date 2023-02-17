@@ -3,7 +3,9 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -46,7 +48,9 @@ type IDatabaseService interface {
 	UpsertBlockBuilderEntryAfterSubmission(lastSubmission *BuilderBlockSubmissionEntry, isError bool) error
 	IncBlockBuilderStatsAfterGetPayload(builderPubkey string) error
 
-	UpsertBuilderDemotion(submitBlockRequest *types.BuilderSubmitBlockRequest, signedBeaconBlock *types.SignedBeaconBlock, signedValidatorRegistration *types.SignedValidatorRegistration, simError error) error
+	InsertBuilderDemotion(submitBlockRequest *types.BuilderSubmitBlockRequest, simError error) error
+	UpdateBuilderDemotion(trace *types.BidTrace, signedBlock *types.SignedBeaconBlock, signedRegistration *types.SignedValidatorRegistration) error
+	DemotionForTrace(trace *types.BidTrace) (bool, error)
 }
 
 type DatabaseService struct {
@@ -524,11 +528,7 @@ func (s *DatabaseService) DeleteExecutionPayloads(idFirst, idLast uint64) error 
 	return err
 }
 
-func (s *DatabaseService) UpsertBuilderDemotion(submitBlockRequest *types.BuilderSubmitBlockRequest, signedBeaconBlock *types.SignedBeaconBlock, signedValidatorRegistration *types.SignedValidatorRegistration, simError error) error {
-	if submitBlockRequest == nil {
-		return fmt.Errorf("nil submitBlockRequest invalid for UpsertBuilderDemotion")
-	}
-
+func (s *DatabaseService) InsertBuilderDemotion(submitBlockRequest *types.BuilderSubmitBlockRequest, simError error) error {
 	_submitBlockRequest, err := json.Marshal(submitBlockRequest)
 	if err != nil {
 		return err
@@ -537,57 +537,59 @@ func (s *DatabaseService) UpsertBuilderDemotion(submitBlockRequest *types.Builde
 	builderDemotionEntry := BuilderDemotionEntry{
 		SubmitBlockRequest: NewNullString(string(_submitBlockRequest)),
 
-		Slot:  bidTrace.Slot,
 		Epoch: bidTrace.Slot / uint64(common.SlotsPerEpoch),
+		Slot:  bidTrace.Slot,
 
 		BuilderPubkey:  bidTrace.BuilderPubkey.String(),
 		ProposerPubkey: bidTrace.ProposerPubkey.String(),
 
-		Value: bidTrace.Value.String(),
+		Value:        bidTrace.Value.String(),
+		FeeRecipient: bidTrace.ProposerFeeRecipient.String(),
 
-		BlockHash: bidTrace.BlockHash.String(),
+		BlockHash:           bidTrace.BlockHash.String(),
+		SubmitBlockSimError: simError.Error(),
 	}
 
-	if signedBeaconBlock != nil {
-		_signedBeaconBlock, err := json.Marshal(signedBeaconBlock)
-		if err != nil {
-			return err
-		}
-		_signedValidatorRegistration, err := json.Marshal(signedValidatorRegistration)
-		if err != nil {
-			return err
-		}
-		builderDemotionEntry.SignedBeaconBlock = NewNullString(string(_signedBeaconBlock))
-		builderDemotionEntry.SignedValidatorRegistration = NewNullString(string(_signedValidatorRegistration))
-		builderDemotionEntry.GetPayloadSimError = simError.Error()
-	} else {
-		// If no signed beacon block, this must be in the block submission flow.
-		builderDemotionEntry.SubmitBlockSimError = simError.Error()
-	}
-
-	queryPrefix := `INSERT INTO ` + vars.TableBuilderDemotions + `
-		(submit_block_request, signed_beacon_block, signed_validator_registration, epoch, slot, builder_pubkey, proposer_pubkey, value, fee_recipient, block_hash, submit_block_sim_error, get_payload_sim_error) VALUES
-		(:submit_block_request, :signed_beacon_block, :signed_validator_registration, :epoch, :slot, :builder_pubkey, :proposer_pubkey, :value, :fee_recipient, :block_hash, :submit_block_sim_error, :get_payload_sim_error)
-		ON CONFLICT (block_hash, builder_pubkey) 
-		`
-	var query string
-	// If block_hash + builder_pubkey conflicts and we have a published block, fill in fields needed for the refund.
-	if signedBeaconBlock != nil {
-		query = queryPrefix + `
-		DO UPDATE SET
-			signed_beacon_block = :signed_beacon_block,
-			signed_validator_registration = :signed_validator_registration,
-			fee_recipient = :fee_recipient,
-			get_payload_sim_error = :get_payload_sim_error;
-		`
-	} else {
-		// If the block_hash + builder_pubkey conflicts, but no
-		// signedBeaconBlock, then just update the block sim error.
-		query = queryPrefix + `
-		DO UPDATE SET
-			submit_block_sim_error = :submit_block_sim_error;
-		`
-	}
+	query := `INSERT INTO ` + vars.TableBuilderDemotions + `
+		(submit_block_request, epoch, slot, builder_pubkey, proposer_pubkey, value, fee_recipient, block_hash, submit_block_sim_error) VALUES
+		(:submit_block_request, :epoch, :slot, :builder_pubkey, :proposer_pubkey, :value, :fee_recipient, :block_hash, :submit_block_sim_error);
+	`
 	_, err = s.DB.NamedExec(query, builderDemotionEntry)
 	return err
+}
+
+func (s *DatabaseService) UpdateBuilderDemotion(trace *types.BidTrace, signedBlock *types.SignedBeaconBlock, signedRegistration *types.SignedValidatorRegistration) error {
+	_signedBeaconBlock, err := json.Marshal(signedBlock)
+	if err != nil {
+		return err
+	}
+	_signedValidatorRegistration, err := json.Marshal(signedRegistration)
+	if err != nil {
+		return err
+	}
+	builderDemotionEntry := BuilderDemotionEntry{
+		SignedBeaconBlock:           NewNullString(string(_signedBeaconBlock)),
+		SignedValidatorRegistration: NewNullString(string(_signedValidatorRegistration)),
+
+		Slot:          trace.Slot,
+		BuilderPubkey: trace.BuilderPubkey.String(),
+		BlockHash:     trace.BlockHash.String(),
+	}
+	query := `UPDATE ` + vars.TableBuilderDemotions + ` SET
+		signed_beacon_block = :signed_beacon_block, signed_validator_registration = :signed_validator_registration
+		WHERE slot = :slot AND builder_pubkey = :builder_pubkey AND block_hash = :block_hash;
+	`
+	_, err = s.DB.NamedExec(query, builderDemotionEntry)
+	return err
+}
+
+func (s *DatabaseService) DemotionForTrace(trace *types.BidTrace) (bool, error) {
+	query := `SELECT block_hash FROM ` + vars.TableBuilderDemotions + `
+	WHERE slot=$1 AND builder_pubkey=$2 AND block_hash=$3`
+	entry := &BuilderDemotionEntry{}
+	err := s.DB.Get(entry, query, trace.Slot, trace.BuilderPubkey.String(), trace.BlockHash.String())
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	return entry.BlockHash == trace.BlockHash.String(), nil
 }

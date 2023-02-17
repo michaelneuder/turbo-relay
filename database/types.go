@@ -241,5 +241,4 @@ type BuilderDemotionEntry struct {
 	BlockHash string `db:"block_hash"`
 
 	SubmitBlockSimError string `db:"submit_block_sim_error"`
-	GetPayloadSimError  string `db:"get_payload_sim_error"`
 }
