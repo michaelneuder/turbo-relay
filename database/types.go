@@ -173,8 +173,9 @@ type BuilderBlockSubmissionEntry struct {
 }
 
 type DeliveredPayloadEntry struct {
-	ID         int64     `db:"id"`
-	InsertedAt time.Time `db:"inserted_at"`
+	ID          int64        `db:"id"`
+	InsertedAt  time.Time    `db:"inserted_at"`
+	ValidatedAt sql.NullTime `db:"validated_at"`
 
 	SignedBlindedBeaconBlock sql.NullString `db:"signed_blinded_beacon_block"`
 

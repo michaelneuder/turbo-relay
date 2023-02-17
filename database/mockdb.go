@@ -78,7 +78,7 @@ func (db MockDB) GetBuilderSubmissionsBySlots(slotFrom, slotTo uint64) (entries 
 	return nil, nil
 }
 
-func (db MockDB) SaveDeliveredPayload(bidTrace *common.BidTraceV2, signedBlindedBeaconBlock *types.SignedBlindedBeaconBlock) error {
+func (db MockDB) SaveDeliveredPayload(validatedAt time.Time, bidTrace *common.BidTraceV2, signedBlindedBeaconBlock *types.SignedBlindedBeaconBlock) error {
 	return nil
 }
 

@@ -14,5 +14,6 @@ var Migrations = migrate.MemoryMigrationSource{
 		Migration005Profiling,
 		Migration006ProfilingExt,
 		Migration007Unzip,
+		Migration008ProposerCommit,
 	},
 }

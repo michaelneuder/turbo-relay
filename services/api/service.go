@@ -915,6 +915,8 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
 		return
 	}
+	// The proposer has now committed to this header.
+	validatedAt := time.Now().UTC()
 
 	// Get the response - from memory, Redis or DB
 	// note that mev-boost might send getPayload for bids of other relays, thus this code wouldn't find anything
@@ -955,7 +957,7 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 		}
 
-		err = api.db.SaveDeliveredPayload(bidTrace, payload)
+		err = api.db.SaveDeliveredPayload(validatedAt, bidTrace, payload)
 		if err != nil {
 			log.WithError(err).WithFields(logrus.Fields{
 				"bidTrace": bidTrace,
