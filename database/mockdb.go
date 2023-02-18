@@ -162,11 +162,14 @@ func (db MockDB) UpdateBuilderDemotion(trace *types.BidTrace, signedBlock *types
 	return nil
 }
 
-func (db MockDB) DemotionForTrace(trace *types.BidTrace) (bool, error) {
+func (db MockDB) GetBuilderDemotion(trace *types.BidTrace) (*BuilderDemotionEntry, error) {
 	pubkey := trace.BuilderPubkey.String()
 	_, ok := db.Builders[pubkey]
 	if !ok {
-		return false, fmt.Errorf("builder with pubkey %v not in Builders map", pubkey)
+		return nil, fmt.Errorf("builder with pubkey %v not in Builders map", pubkey)
 	}
-	return db.Demotions[pubkey], nil
+	if db.Demotions[pubkey] {
+		return &BuilderDemotionEntry{}, nil
+	}
+	return nil, nil
 }

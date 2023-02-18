@@ -3,9 +3,7 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -50,7 +48,7 @@ type IDatabaseService interface {
 
 	InsertBuilderDemotion(submitBlockRequest *types.BuilderSubmitBlockRequest, simError error) error
 	UpdateBuilderDemotion(trace *types.BidTrace, signedBlock *types.SignedBeaconBlock, signedRegistration *types.SignedValidatorRegistration) error
-	DemotionForTrace(trace *types.BidTrace) (bool, error)
+	GetBuilderDemotion(trace *types.BidTrace) (*BuilderDemotionEntry, error)
 }
 
 type DatabaseService struct {
@@ -567,29 +565,23 @@ func (s *DatabaseService) UpdateBuilderDemotion(trace *types.BidTrace, signedBlo
 	if err != nil {
 		return err
 	}
-	builderDemotionEntry := BuilderDemotionEntry{
-		SignedBeaconBlock:           NewNullString(string(_signedBeaconBlock)),
-		SignedValidatorRegistration: NewNullString(string(_signedValidatorRegistration)),
-
-		Slot:          trace.Slot,
-		BuilderPubkey: trace.BuilderPubkey.String(),
-		BlockHash:     trace.BlockHash.String(),
-	}
+	sbb := NewNullString(string(_signedBeaconBlock))
+	svr := NewNullString(string(_signedValidatorRegistration))
 	query := `UPDATE ` + vars.TableBuilderDemotions + ` SET
-		signed_beacon_block = :signed_beacon_block, signed_validator_registration = :signed_validator_registration
-		WHERE slot = :slot AND builder_pubkey = :builder_pubkey AND block_hash = :block_hash;
+		signed_beacon_block=$1, signed_validator_registration=$2
+		WHERE slot=$3 AND builder_pubkey=$4 AND block_hash=$5;
 	`
-	_, err = s.DB.NamedExec(query, builderDemotionEntry)
+	_, err = s.DB.Exec(query, sbb, svr, trace.Slot, trace.BuilderPubkey.String(), trace.BlockHash.String())
 	return err
 }
 
-func (s *DatabaseService) DemotionForTrace(trace *types.BidTrace) (bool, error) {
-	query := `SELECT block_hash FROM ` + vars.TableBuilderDemotions + `
+func (s *DatabaseService) GetBuilderDemotion(trace *types.BidTrace) (*BuilderDemotionEntry, error) {
+	query := `SELECT submit_block_request, signed_beacon_block, signed_validator_registration, epoch, slot, builder_pubkey, proposer_pubkey, value, fee_recipient, block_hash, submit_block_sim_error FROM ` + vars.TableBuilderDemotions + `
 	WHERE slot=$1 AND builder_pubkey=$2 AND block_hash=$3`
 	entry := &BuilderDemotionEntry{}
 	err := s.DB.Get(entry, query, trace.Slot, trace.BuilderPubkey.String(), trace.BlockHash.String())
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return false, err
+	if err != nil {
+		return nil, err
 	}
-	return entry.BlockHash == trace.BlockHash.String(), nil
+	return entry, nil
 }

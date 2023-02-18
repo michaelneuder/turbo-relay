@@ -453,7 +453,7 @@ func (api *RelayAPI) demoteBuilder(pubkey string, req *types.BuilderSubmitBlockR
 			"errorWritingDemotionToDB": true,
 			"bidTrace":                 req.Message,
 			"simError":                 simError,
-		}).Error("failed to save validator refund to database")
+		}).Error("failed to save demotion to database")
 	}
 }
 
@@ -973,51 +973,54 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		api.optimisticBlocks.Wait()
 
 		// Check if there is a demotion for the winning block.
-		demoted, err := api.db.DemotionForTrace(&bidTrace.BidTrace)
-		if err != nil {
-			log.WithError(err).Error("failed to check for demotion")
-		}
-
-		// If demoted, insert remaining data for the refund.
-		if demoted {
-			builderPubkey := bidTrace.BuilderPubkey.String()
-			log = log.WithFields(logrus.Fields{
-				"builderPubkey": builderPubkey,
-				"bidTrace":      bidTrace,
-			})
-			log.Error("invalid block in getPayload, inserting refund justification")
-
-			// Prepare refund data.
-			signedBeaconBlock := SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp.Data)
-
-			// Get registration entry from the DB.
-			registrationEntry, err := api.db.GetValidatorRegistration(proposerPubkey.String())
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					log.WithError(err).Error("no registration found for validator " + proposerPubkey.String())
-				} else {
-					log.WithError(err).Error("error reading validator registration")
-				}
-			}
-			var signedRegistration *types.SignedValidatorRegistration
-			if registrationEntry != nil {
-				signedRegistration, err = registrationEntry.ToSignedValidatorRegistration()
-				if err != nil {
-					log.WithError(err).Error("error converting registration to signed registration")
-				}
-			}
-
-			err = api.db.UpdateBuilderDemotion(&bidTrace.BidTrace, signedBeaconBlock, signedRegistration)
-			if err != nil {
-				log.WithFields(logrus.Fields{
-					"errorWritingRefundToDB": true,
-					"bidTrace":               bidTrace,
-					"signedBeaconBlock":      signedBeaconBlock,
-					"signedRegistration":     signedRegistration,
-				}).WithError(err).Error("unable to update builder demotion with refund justification")
-			}
+		_, err = api.db.GetBuilderDemotion(&bidTrace.BidTrace)
+		// If demotion not found, we are done!
+		if err == sql.ErrNoRows {
 			return
 		}
+		if err != nil {
+			log.WithError(err).Error("failed to read demotion table in getPayload")
+			return
+		}
+		// Demotion found, update the demotion table with refund data.
+		builderPubkey := bidTrace.BuilderPubkey.String()
+		log = log.WithFields(logrus.Fields{
+			"builderPubkey": builderPubkey,
+			"slot":          bidTrace.Slot,
+			"blockHash":     bidTrace.BlockHash,
+		})
+		log.Error("demotion found in getPayload, inserting refund justification")
+
+		// Prepare refund data.
+		signedBeaconBlock := SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp.Data)
+
+		// Get registration entry from the DB.
+		registrationEntry, err := api.db.GetValidatorRegistration(proposerPubkey.String())
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				log.WithError(err).Error("no registration found for validator " + proposerPubkey.String())
+			} else {
+				log.WithError(err).Error("error reading validator registration")
+			}
+		}
+		var signedRegistration *types.SignedValidatorRegistration
+		if registrationEntry != nil {
+			signedRegistration, err = registrationEntry.ToSignedValidatorRegistration()
+			if err != nil {
+				log.WithError(err).Error("error converting registration to signed registration")
+			}
+		}
+
+		err = api.db.UpdateBuilderDemotion(&bidTrace.BidTrace, signedBeaconBlock, signedRegistration)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"errorWritingRefundToDB": true,
+				"bidTrace":               bidTrace,
+				"signedBeaconBlock":      signedBeaconBlock,
+				"signedRegistration":     signedRegistration,
+			}).WithError(err).Error("unable to update builder demotion with refund justification")
+		}
+
 	}()
 
 	// Publish the signed beacon block via beacon-node

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ var (
 		RedisUpdate: 49,
 		Submission:  50,
 	}
+	errFoo = fmt.Errorf("fake simulation error")
 )
 
 func createValidatorRegistration(pubKey string) ValidatorRegistrationEntry {
@@ -270,46 +272,72 @@ func TestSetBlockBuilderCollateral(t *testing.T) {
 func TestInsertBuilderDemotion(t *testing.T) {
 	db := resetDatabase(t)
 	pk, sk := getTestKeyPair(t)
-	req := common.TestBuilderSubmitBlockRequest(pk, sk, &types.BidTrace{
+	var testBlockHash types.Hash
+	err := testBlockHash.UnmarshalText([]byte(blockHashStr))
+	require.NoError(t, err)
+	trace := &types.BidTrace{
+		BlockHash:            testBlockHash,
 		Slot:                 slot,
 		BuilderPubkey:        *pk,
 		ProposerFeeRecipient: feeRecipient,
 		Value:                types.IntToU256(uint64(collateral)),
-	})
+	}
+	req := common.TestBuilderSubmitBlockRequest(pk, sk, trace)
 
-	simErr := fmt.Errorf("fake simulation error")
-	err := db.InsertBuilderDemotion(&req, simErr)
+	err = db.InsertBuilderDemotion(&req, errFoo)
 	require.NoError(t, err)
+
+	entry, err := db.GetBuilderDemotion(trace)
+	require.NoError(t, err)
+	require.Equal(t, slot, entry.Slot)
+	require.Equal(t, pk.String(), entry.BuilderPubkey)
+	require.Equal(t, blockHashStr, entry.BlockHash)
 }
 
 func TestUpdateBuilderDemotion(t *testing.T) {
 	db := resetDatabase(t)
 	pk, sk := getTestKeyPair(t)
+	var testBlockHash types.Hash
+	err := testBlockHash.UnmarshalText([]byte(blockHashStr))
+	require.NoError(t, err)
 	req := common.TestBuilderSubmitBlockRequest(pk, sk, &types.BidTrace{
+		BlockHash:            testBlockHash,
 		Slot:                 slot,
 		BuilderPubkey:        *pk,
 		ProposerFeeRecipient: feeRecipient,
 		Value:                types.IntToU256(uint64(collateral)),
 	})
 
-	// Should not be demoted yet.
-	demoted, err := db.DemotionForTrace(req.Message)
-	require.NoError(t, err)
-	require.False(t, demoted)
+	// Should return ErrNoRows because there is no demotion yet..
+	demotion, err := db.GetBuilderDemotion(req.Message)
+	require.Equal(t, sql.ErrNoRows, err)
+	require.Nil(t, demotion)
 
 	// Insert demotion
-	simErr := fmt.Errorf("fake simulation error")
-	err = db.InsertBuilderDemotion(&req, simErr)
+	err = db.InsertBuilderDemotion(&req, errFoo)
 	require.NoError(t, err)
 
-	// Now demoted should be true.
-	demoted, err = db.DemotionForTrace(req.Message)
+	// Now demotion should show up.
+	demotion, err = db.GetBuilderDemotion(req.Message)
 	require.NoError(t, err)
-	require.True(t, demoted)
+
+	// Signed block and validation should be invalid and empty.
+	require.False(t, demotion.SignedBeaconBlock.Valid)
+	require.Empty(t, demotion.SignedBeaconBlock.String)
+	require.False(t, demotion.SignedValidatorRegistration.Valid)
+	require.Empty(t, demotion.SignedValidatorRegistration.String)
 
 	// Update demotion with the signedBlock and signedRegistration.
 	err = db.UpdateBuilderDemotion(req.Message, &types.SignedBeaconBlock{}, &types.SignedValidatorRegistration{})
 	require.NoError(t, err)
+
+	// Signed block and validation should now be valid and non-empty.
+	demotion, err = db.GetBuilderDemotion(req.Message)
+	require.NoError(t, err)
+	require.True(t, demotion.SignedBeaconBlock.Valid)
+	require.NotEmpty(t, demotion.SignedBeaconBlock.String)
+	require.True(t, demotion.SignedValidatorRegistration.Valid)
+	require.NotEmpty(t, demotion.SignedValidatorRegistration.String)
 }
 
 func TestGetBlockSubmissionEntry(t *testing.T) {
