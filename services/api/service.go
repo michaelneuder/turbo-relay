@@ -969,7 +969,7 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			log.WithError(err).Error("failed to increment builder-stats after getPayload")
 		}
 
-		// Wait until optimistic blocks for that slot are complete.
+		// Wait until optimistic blocks are complete.
 		api.optimisticBlocks.Wait()
 
 		// Check if there is a demotion for the winning block.
@@ -1020,7 +1020,6 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 				"signedRegistration":     signedRegistration,
 			}).WithError(err).Error("unable to update builder demotion with refund justification")
 		}
-
 	}()
 
 	// Publish the signed beacon block via beacon-node
