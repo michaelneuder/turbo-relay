@@ -33,15 +33,17 @@ var (
 	testDBDSN    = common.GetEnv("TEST_DB_DSN", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
 	profile      = common.Profile{
 		Unzip:       41,
-		Decode:      42,
-		CacheRead:   43,
-		RandaoLock1: 44,
-		DutiesLock:  45,
-		Checks:      46,
-		RandaoLock2: 47,
-		Simulation:  48,
-		RedisUpdate: 49,
-		Submission:  50,
+		ReadHeader:  42,
+		Read:        43,
+		Decode:      44,
+		CacheRead:   45,
+		RandaoLock1: 46,
+		DutiesLock:  47,
+		Checks:      48,
+		RandaoLock2: 49,
+		Simulation:  50,
+		RedisUpdate: 51,
+		Submission:  52,
 	}
 	errFoo = fmt.Errorf("fake simulation error")
 )

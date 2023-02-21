@@ -2,6 +2,7 @@
 package api
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"database/sql"
@@ -1110,8 +1111,52 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 	pf.Unzip = uint64(nextTime.Sub(prevTime).Microseconds())
 	prevTime = nextTime
 
+	var buf bytes.Buffer
+	rHeader := io.TeeReader(r, &buf)
+
+	var hash, value string
+	var hashFound, valueFound, measureHeaderOnly bool
+	measureHeaderOnly = true
+	dec := json.NewDecoder(rHeader)
+	for {
+		t, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.WithError(err).Warn("could not read payload")
+			api.RespondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if t == "value" {
+			valueT, _ := dec.Token()
+			value = valueT.(string)
+			valueFound = true
+		}
+		if t == "block_hash" {
+			hashT, _ := dec.Token()
+			hash = hashT.(string)
+			hashFound = true
+		}
+		if measureHeaderOnly && hashFound && valueFound {
+			headerOnly := time.Now().UTC()
+			pf.ReadHeader = uint64(headerOnly.Sub(prevTime).Microseconds())
+			log.WithFields(logrus.Fields{
+				"blockHash":    hash,
+				"value":        value,
+				"headerTiming": pf.ReadHeader,
+			}).Info("optimistically parsed header")
+			// Set to false to avoid repeatedly logging this. Loop needs to continue.
+			measureHeaderOnly = false
+		}
+	}
+
+	nextTime = time.Now().UTC()
+	pf.Read = uint64(nextTime.Sub(prevTime).Microseconds())
+	prevTime = nextTime
+
 	payload := new(types.BuilderSubmitBlockRequest)
-	if err := json.NewDecoder(r).Decode(payload); err != nil {
+	if err := json.NewDecoder(&buf).Decode(payload); err != nil {
 		log.WithError(err).Warn("could not decode payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
