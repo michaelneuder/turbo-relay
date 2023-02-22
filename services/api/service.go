@@ -1115,10 +1115,10 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 	rHeader := io.TeeReader(r, &buf)
 
 	var hash, value string
-	var hashFound, valueFound, measureHeaderOnly bool
-	measureHeaderOnly = true
+	var hashFound, valueFound bool
 	dec := json.NewDecoder(rHeader)
-	for {
+	// Parse just the block_hash and value.
+	for !hashFound || !valueFound {
 		t, err := dec.Token()
 		if err == io.EOF {
 			break
@@ -1128,35 +1128,31 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 			api.RespondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if t == "value" {
-			valueT, _ := dec.Token()
-			value = valueT.(string)
-			valueFound = true
-		}
 		if t == "block_hash" {
 			hashT, _ := dec.Token()
 			hash = hashT.(string)
 			hashFound = true
 		}
-		if measureHeaderOnly && hashFound && valueFound {
-			headerOnly := time.Now().UTC()
-			pf.ReadHeader = uint64(headerOnly.Sub(prevTime).Microseconds())
-			log.WithFields(logrus.Fields{
-				"blockHash":    hash,
-				"value":        value,
-				"headerTiming": pf.ReadHeader,
-			}).Info("optimistically parsed header")
-			// Set to false to avoid repeatedly logging this. Loop needs to continue.
-			measureHeaderOnly = false
+		if t == "value" {
+			valueT, _ := dec.Token()
+			value = valueT.(string)
+			valueFound = true
 		}
 	}
+	headerOnly := time.Now().UTC()
+	pf.ReadHeader = uint64(headerOnly.Sub(prevTime).Microseconds())
+	log.WithFields(logrus.Fields{
+		"blockHash":    hash,
+		"value":        value,
+		"headerTiming": pf.ReadHeader,
+	}).Info("optimistically parsed header")
 
-	nextTime = time.Now().UTC()
-	pf.Read = uint64(nextTime.Sub(prevTime).Microseconds())
-	prevTime = nextTime
+	// Join the header bytes with the remaining bytes.
+	fullReader := io.MultiReader(&buf, r)
 
+	// Read full request and unmarshal.
 	payload := new(types.BuilderSubmitBlockRequest)
-	if err := json.NewDecoder(&buf).Decode(payload); err != nil {
+	if err := json.NewDecoder(fullReader).Decode(payload); err != nil {
 		log.WithError(err).Warn("could not decode payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
