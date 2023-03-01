@@ -1318,6 +1318,7 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 
 	var simErr error
 	var optimisticSubmission bool
+	var eligibleAt time.Time
 
 	nextTime = time.Now().UTC()
 	pf.RandaoLock2 = uint64(nextTime.Sub(prevTime).Microseconds())
@@ -1325,7 +1326,7 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 
 	// At end of this function, save builder submission to database (in the background)
 	defer func() {
-		submissionEntry, err := api.db.SaveBuilderBlockSubmission(payload, simErr, receivedAt, pf, optimisticSubmission)
+		submissionEntry, err := api.db.SaveBuilderBlockSubmission(payload, simErr, receivedAt, eligibleAt, pf, optimisticSubmission)
 		if err != nil {
 			log.WithError(err).WithField("payload", payload).Error("saving builder block submission to database failed")
 			return
@@ -1437,9 +1438,9 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 	}
 
 	// this bid is now elligible to win the auction
-	nextTime = time.Now().UTC()
-	pf.RedisUpdate = uint64(nextTime.Sub(prevTime).Microseconds())
-	pf.Submission = uint64(nextTime.Sub(receivedAt).Microseconds())
+	eligibleAt = time.Now().UTC()
+	pf.RedisUpdate = uint64(eligibleAt.Sub(prevTime).Microseconds())
+	pf.Submission = uint64(eligibleAt.Sub(receivedAt).Microseconds())
 
 	//
 	// all done
