@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1114,11 +1115,11 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 	var buf bytes.Buffer
 	rHeader := io.TeeReader(r, &buf)
 
-	var hash, value string
-	var hashFound, valueFound bool
+	var sig types.Signature
+	var bid types.BidTrace
+	var sigFound, bidFound bool
 	dec := json.NewDecoder(rHeader)
-	// Parse just the block_hash and value.
-	for !hashFound || !valueFound {
+	for !sigFound || !bidFound {
 		t, err := dec.Token()
 		if err == io.EOF {
 			break
@@ -1128,24 +1129,47 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 			api.RespondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if t == "block_hash" {
-			hashT, _ := dec.Token()
-			hash = hashT.(string)
-			hashFound = true
+		if t == "signature" {
+			sigT, _ := dec.Token()
+			sigB, err := hex.DecodeString(sigT.(string)[2:])
+			if err != nil {
+				log.WithError(err).Warn("could not decode signature")
+				api.RespondError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			err = sig.FromSlice(sigB)
+			if err != nil {
+				log.WithError(err).Warn("could not read signature from slice")
+				api.RespondError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			sigFound = true
 		}
-		if t == "value" {
-			valueT, _ := dec.Token()
-			value = valueT.(string)
-			valueFound = true
+		if t == "message" {
+			err = dec.Decode(&bid)
+			if err != nil {
+				log.WithError(err).Warn("could not decode bid trace")
+				api.RespondError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			bidFound = true
 		}
 	}
+
+	ok, err := types.VerifySignature(&bid, api.opts.EthNetDetails.DomainBuilder, bid.BuilderPubkey[:], sig[:])
+	if !ok || err != nil {
+		log.WithError(err).Warn("could not verify builder signature")
+		api.RespondError(w, http.StatusBadRequest, "invalid signature")
+		return
+	}
+
 	headerOnly := time.Now().UTC()
 	pf.ReadHeader = uint64(headerOnly.Sub(prevTime).Microseconds())
 	log.WithFields(logrus.Fields{
-		"blockHash":    hash,
-		"value":        value,
+		"bid":          bid,
+		"signature":    sig,
 		"headerTiming": pf.ReadHeader,
-	}).Info("optimistically parsed header")
+	}).Info("optimistically parsed bid and verified signature")
 
 	// Join the header bytes with the remaining bytes.
 	fullReader := io.MultiReader(&buf, r)

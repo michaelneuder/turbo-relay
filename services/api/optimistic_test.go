@@ -318,7 +318,6 @@ func TestDemoteBuilder(t *testing.T) {
 	// Check demotion and refund statuses.
 	mockDB := backend.relay.db.(*database.MockDB)
 	require.True(t, mockDB.Demotions[pkStr])
-
 }
 
 func TestUpdateOptimisticSlot(t *testing.T) {
@@ -382,7 +381,6 @@ func TestProposerApiGetPayloadOptimistic(t *testing.T) {
 			mockDB := backend.relay.db.(*database.MockDB)
 			require.Equal(t, tc.demoted, mockDB.Demotions[pkStr])
 			require.Equal(t, tc.demoted, mockDB.Refunds[pkStr])
-
 		})
 	}
 }
