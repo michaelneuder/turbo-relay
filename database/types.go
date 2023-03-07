@@ -127,6 +127,7 @@ type BuilderBlockSubmissionEntry struct {
 	ID         int64        `db:"id"`
 	InsertedAt time.Time    `db:"inserted_at"`
 	ReceivedAt sql.NullTime `db:"received_at"`
+	EligibleAt sql.NullTime `db:"eligible_at"`
 
 	// Delivered ExecutionPayload
 	ExecutionPayloadID sql.NullInt64 `db:"execution_payload_id"`
@@ -155,11 +156,30 @@ type BuilderBlockSubmissionEntry struct {
 	// Helpers
 	Epoch       uint64 `db:"epoch"`
 	BlockNumber uint64 `db:"block_number"`
+
+	// Profile data.
+	UnzipDuration       uint64 `db:"unzip_duration"`
+	ReadHeaderDuration  uint64 `db:"read_header_duration"`
+	ReadDuration        uint64 `db:"read_duration"`
+	DecodeDuration      uint64 `db:"decode_duration"`
+	CacheReadDuration   uint64 `db:"cache_read_duration"`
+	RandaoLock1Duration uint64 `db:"randao_lock_1_duration"`
+	DutiesLockDuration  uint64 `db:"duties_lock_duration"`
+	ChecksDuration      uint64 `db:"checks_duration"`
+	RandaoLock2Duration uint64 `db:"randao_lock_2_duration"`
+
+	PrecheckDuration     uint64 `db:"precheck_duration"`
+	SimulationDuration   uint64 `db:"simulation_duration"`
+	RedisUpdateDuration  uint64 `db:"redis_update_duration"`
+	SubmissionDuration   uint64 `db:"submission_duration"`
+	OptimisticSubmission bool   `db:"optimistic_submission"`
+	PayloadParsed        bool   `db:"payload_parsed"`
 }
 
 type DeliveredPayloadEntry struct {
-	ID         int64     `db:"id"`
-	InsertedAt time.Time `db:"inserted_at"`
+	ID          int64        `db:"id"`
+	InsertedAt  time.Time    `db:"inserted_at"`
+	ValidatedAt sql.NullTime `db:"validated_at"`
 
 	SignedBlindedBeaconBlock sql.NullString `db:"signed_blinded_beacon_block"`
 
@@ -190,6 +210,10 @@ type BlockBuilderEntry struct {
 
 	IsHighPrio    bool `db:"is_high_prio"   json:"is_high_prio"`
 	IsBlacklisted bool `db:"is_blacklisted" json:"is_blacklisted"`
+	IsDemoted     bool `db:"is_demoted"     json:"is_demoted"`
+
+	CollateralValue string `db:"collateral_value"  json:"collateral_value"`
+	CollateralID    string `db:"collateral_id"     json:"collateral_id"`
 
 	LastSubmissionID   sql.NullInt64 `db:"last_submission_id"   json:"last_submission_id"`
 	LastSubmissionSlot uint64        `db:"last_submission_slot" json:"last_submission_slot"`
@@ -198,4 +222,27 @@ type BlockBuilderEntry struct {
 	NumSubmissionsSimError uint64 `db:"num_submissions_simerror" json:"num_submissions_simerror"`
 
 	NumSentGetPayload uint64 `db:"num_sent_getpayload" json:"num_sent_getpayload"`
+}
+
+type BuilderDemotionEntry struct {
+	ID         int64     `db:"id"`
+	InsertedAt time.Time `db:"inserted_at"`
+
+	SubmitBlockRequest          sql.NullString `db:"submit_block_request"`
+	SignedBeaconBlock           sql.NullString `db:"signed_beacon_block"`
+	SignedValidatorRegistration sql.NullString `db:"signed_validator_registration"`
+
+	Slot  uint64 `db:"slot"`
+	Epoch uint64 `db:"epoch"`
+
+	BuilderPubkey  string `db:"builder_pubkey"`
+	ProposerPubkey string `db:"proposer_pubkey"`
+
+	Value string `db:"value"`
+
+	FeeRecipient string `db:"fee_recipient"`
+
+	BlockHash string `db:"block_hash"`
+
+	SubmitBlockSimError string `db:"submit_block_sim_error"`
 }
