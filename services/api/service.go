@@ -1117,7 +1117,7 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 
 	var sig types.Signature
 	var bid types.BidTrace
-	var sigFound, bidFound bool
+	var sigFound, bidFound, payloadFound bool
 	dec := json.NewDecoder(rHeader)
 	for !sigFound || !bidFound {
 		t, err := dec.Token()
@@ -1153,6 +1153,9 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 				return
 			}
 			bidFound = true
+		}
+		if t == "execution_payload" {
+			payloadFound = true
 		}
 	}
 
@@ -1350,7 +1353,7 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 
 	// At end of this function, save builder submission to database (in the background)
 	defer func() {
-		submissionEntry, err := api.db.SaveBuilderBlockSubmission(payload, simErr, receivedAt, eligibleAt, pf, optimisticSubmission)
+		submissionEntry, err := api.db.SaveBuilderBlockSubmission(payload, simErr, receivedAt, eligibleAt, pf, optimisticSubmission, payloadFound)
 		if err != nil {
 			log.WithError(err).WithField("payload", payload).Error("saving builder block submission to database failed")
 			return

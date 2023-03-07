@@ -173,6 +173,7 @@ type BuilderBlockSubmissionEntry struct {
 	RedisUpdateDuration  uint64 `db:"redis_update_duration"`
 	SubmissionDuration   uint64 `db:"submission_duration"`
 	OptimisticSubmission bool   `db:"optimistic_submission"`
+	PayloadParsed        bool   `db:"payload_parsed"`
 }
 
 type DeliveredPayloadEntry struct {

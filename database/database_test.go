@@ -23,6 +23,7 @@ const (
 	collateralID         = "builder0x69"
 	randao               = "01234567890123456789012345678901"
 	optimisticSubmission = true
+	payloadParsed        = true
 )
 
 var (
@@ -83,7 +84,7 @@ func insertTestBuilder(t *testing.T, db IDatabaseService) string {
 		ProposerFeeRecipient: feeRecipient,
 		Value:                types.IntToU256(uint64(collateral)),
 	})
-	entry, err := db.SaveBuilderBlockSubmission(&req, nil, receivedAt, eligibleAt, profile, optimisticSubmission)
+	entry, err := db.SaveBuilderBlockSubmission(&req, nil, receivedAt, eligibleAt, profile, optimisticSubmission, payloadParsed)
 	require.NoError(t, err)
 	err = db.UpsertBlockBuilderEntryAfterSubmission(entry, false)
 	require.NoError(t, err)
@@ -366,4 +367,5 @@ func TestGetBlockSubmissionEntry(t *testing.T) {
 	require.True(t, entry.EligibleAt.Time.Equal(eligibleAt))
 
 	require.True(t, entry.OptimisticSubmission)
+	require.True(t, entry.PayloadParsed)
 }

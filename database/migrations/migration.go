@@ -18,5 +18,6 @@ var Migrations = migrate.MemoryMigrationSource{
 		Migration009DemotionRefactor,
 		Migration010Read,
 		Migration011BidEligible,
+		Migration012Payload,
 	},
 }
